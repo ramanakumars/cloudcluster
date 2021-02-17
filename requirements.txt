@@ -1,0 +1,10 @@
+## Requirements for projection 
+numpy
+scipy
+matplotlib
+spiceypy
+Cython
+netCDF4
+
+## Requirements for clustering
+scikit-learn
