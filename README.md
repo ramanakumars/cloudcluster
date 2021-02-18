@@ -1,6 +1,5 @@
-# billow
-Image processing and cloud clustering pipeline for JunoCam images
-
+# Clustering cloud types from JunoCam images
+This is a tool to run the projection and subsequent classification from JunoCam images. 
 
 ## Dependencies
 Install the python dependencies using the `requirements.txt`:
@@ -13,3 +12,6 @@ pip3 install -r requirements.txt
 See `projection.ipynb` for an example of JunoCam image projection.
 
 See `do_cluster.ipynb` for an example of cloud clustering from a map projected JunoCam image.
+
+To rerun the projection code, you will need to unzip the `5989-Data.zip` and `5989-ImageSet.zip`
+files, which will create the `DataSet` and `ImageSet` directories. 
