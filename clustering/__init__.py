@@ -1,1 +1,1 @@
-from .cluster import ImageCluster
+from . import cluster

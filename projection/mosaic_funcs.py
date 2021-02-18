@@ -202,27 +202,29 @@ def map_project(newlon, newlat, file, num_procs=1, save=False, savemask=False):
         IMG[:,:,ci] = stackmask*IMG[:,:,ci]
         mask[:,:,ci] = stackmask
 
-    ## saveout here to a new file if needed
-    if(save):
-        ## save these parameters to a NetCDF file so that we can plot it later
-        f = nc.Dataset('%s_proj.nc'%fname, 'w')
-
+    ## save these parameters to a NetCDF file so that we can plot it later
+    with nc.Dataset('%s_proj.nc'%fname, 'w') as f:
         xdim     = f.createDimension('x',nlon)
         ydim     = f.createDimension('y',nlat)
         colors   = f.createDimension('colors',3)
 
         ## create the NetCDF variables
-        latVar  = f.createVariable('lat', 'float64', ('y'))
-        lonVar  = f.createVariable('lon', 'float64', ('x'))
-        imgVar  = f.createVariable('img', 'float64', ('y','x','colors'))
+        latVar  = f.createVariable('lat', 'float32', ('y'), zlib=True)
+        lonVar  = f.createVariable('lon', 'float32', ('x'), zlib=True)
+
+        lonVar.units = "degrees west"
+        latVar.units = "degrees north"
+
+        imgVar  = f.createVariable('img', 'float32', ('y','x','colors'), zlib=True)
+        
+        img_corrVar = f.createVariable('img_corr', 'uint8', ('y','x','colors'), zlib=True)
 
         latVar[:]  = newlat[:]
         lonVar[:]  = newlon[:]
         imgVar[:]  = IMG[:]
+        img_corrVar[:] = np.asarray(IMG*255/IMG.max(), dtype=np.uint8)
 
-        f.close()
-
-    return IMG, mask
+    return "%s_proj.nc"%fname, IMG, mask
 
 
 def project_to_uniform_grid(lon, lat, img, num_procs=1):
@@ -363,7 +365,7 @@ def project_part_image(inp, method='linear'):
     except Exception as e:
         raise e
 
-def color_correction(IMG, newlon, newlat, gamma=1.0, fname=None, save=False):
+def color_correction(datafile, gamma=1.0, fname=None, save=False):
     ''' 
         Do the color and gamma correction, and image scaling on the image
 
@@ -392,15 +394,25 @@ def color_correction(IMG, newlon, newlat, gamma=1.0, fname=None, save=False):
         AssertionError
             if `save`=True but no fname defined
     '''
-    IMG2 = IMG.copy()
-    ## cleanup and do color correction
-    IMG2[:,:,0] *= 0.902
-    IMG2[:,:,2] *= 1.8879
-    
-    IMG2 = IMG2**gamma
+    with nc.Dataset(datafile, "r+") as data:
+        IMG  = data.variables['img'][:]
+        lon  = data.variables['lon'][:]
+        lat  = data.variables['lat'][:]
 
-    ## normalize the image by the 95% percentile
-    IMG2 = IMG2/(np.percentile(IMG2[IMG2>0.], 99.))
+        IMG2 = IMG.copy()
+        ## cleanup and do color correction
+        IMG2[:,:,0] *= 0.902
+        IMG2[:,:,2] *= 1.8879
+        
+        IMG2 = IMG2**gamma
+
+        ## normalize the image by the 95% percentile
+        IMG2 = IMG2/(np.percentile(IMG2[IMG2>0.], 99.))
+        
+        IMG2 = np.clip(IMG2, 0, 1)
+
+        ## save the new image out to the netCDF file
+        data.variables['img_corr'][:] = np.asarray(IMG2*255, dtype=np.uint8)
 
     if save:
         assert not isinstance(fname, type(None)), \
@@ -409,10 +421,11 @@ def color_correction(IMG, newlon, newlat, gamma=1.0, fname=None, save=False):
     
 
     fig, ax = plt.subplots(1,1,figsize=(10,10),dpi=150)
-    ax.imshow(IMG2, extent=(newlon.min(), newlon.max(), newlat.min(), newlat.max()),\
+    ax.imshow(IMG2, extent=(lon.min(), lon.max(), lat.min(), lat.max()),\
                origin='lower')
     ax.set_xlabel(r"Longitude [deg]")
     ax.set_ylabel(r"Latitude [deg]")
     plt.show()
+
     return IMG2
 

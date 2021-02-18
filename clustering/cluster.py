@@ -4,18 +4,40 @@ from sklearn.cluster import KMeans, DBSCAN
 import os
 from matplotlib.colors import rgb_to_hsv, LogNorm
 from matplotlib.gridspec import GridSpec
+import netCDF4 as nc
 
 class ImageCluster():
+    '''
+        The ImageCluster class handles the clustering of 
+        different cloud types of a map projected JunoCam image
+    '''
 
-    def __init__(self, imgfile):
-        self.imgfile = imgfile
-        self.fname, ext = os.path.splitext(imgfile)
+    def __init__(self, projfile):
+        '''
+            Initializer method
 
-        self.image = plt.imread(imgfile)
+            Parameters
+            ----------
+            projfile : string
+                name of the netCDF4 file from projecting JunoCam image. 
+                See the `projection` module
+        '''
+        self.projfile   = projfile
+        self.fname, ext = os.path.splitext(projfile)
 
-        ## remove the alpha channel
-        if(self.image.shape[2] == 4):
-            self.image = self.image[:,:,:3]
+        indata = nc.Dataset(projfile, 'r')
+
+        self.image = indata.variables['img_corr'][:].astype(float)/255.
+
+        self.lon = indata.variables['lon'][:].astype(np.float64)
+        self.lat = indata.variables['lat'][:].astype(np.float64)
+
+        self.extents = (self.lon.min(), self.lon.max(), self.lat.min(), self.lat.max())
+
+        LON, LAT = np.meshgrid(self.lon, self.lat)
+
+        self.latflat = LAT.flatten()
+        self.lonflat = LON.flatten()
 
         ## correct JPG images
         if(ext[1:] == 'jpg'):
@@ -26,10 +48,14 @@ class ImageCluster():
         self.get_data_from_img()
 
         fig, ax = plt.subplots(1,1, figsize=(11, 8))
-        ax.imshow(self.image, origin='lower')
+        ax.imshow(self.image, extent=self.extents, origin='lower')
         plt.show()
 
     def get_data_from_img(self):
+        '''
+            Construct the 1-D arrays that hold the RGB and HSV
+            data from the image
+        '''
         self.hsvimage  = rgb_to_hsv(self.image)
 
         ## find the pixels that correspond to data 
@@ -49,6 +75,29 @@ class ImageCluster():
 
 
     def create_img_from_array(self, data):
+        ''' 
+            Convert between the flattened array and an image
+            
+            Parameters
+            ----------
+            data : numpy.ndarray
+                Input 1D flattened array. Should be the same length 
+                as `self.pixmask`
+
+            Outputs
+            -------
+            img : numpy.ndarray
+                Output 2D array with values from `data` filled in the appropriate
+                pixels and zeros elsewhere
+
+            Raises
+            ------
+            AssertionError
+                if the data size does not match the `self.pixmask` size
+        '''
+
+        assert len(data) == len(self.pixmask), "input data not the same size as pixmask!"
+
         if(len(data.shape) > 1):
             img = np.empty((self.ny, self.nx, 3))
         else:
@@ -64,7 +113,30 @@ class ImageCluster():
             img[jj,ii] = data[i]
         return img
 
-    def create_clusters(self, n_clusters=4, axis=(0,1), source='hsv'):
+    def create_clusters(self, n_clusters=4, axis=(0,1), source='hsv', **kwargs):
+        '''
+            Main driver for the classifier. Uses KMeans clustering to classify
+            the input data. Can be RGB or HSV and can use different components
+            of each.
+
+
+            Parameters
+            ----------
+            n_clusters : int
+                The number of clusters to classify [Default: 4]
+            source : string
+                Use either the RGB ('rgb') or HSV ('hsv') values [Defualt: hsv]
+            axis : tuple
+                The two components to use for the clustering algorithm
+            **kwargs : 
+                Other arguments to be used in the KMeans class
+
+            Raises
+            ------
+            ValueError
+                if source is not either 'rgb' or 'hsv'
+
+        '''
         self.clustdata     = np.zeros((self.npix,2))
 
         if(source=='hsv'):
@@ -76,7 +148,7 @@ class ImageCluster():
         else:
             raise ValueError("source argument must be rgb or hsv")
 
-        clustering = KMeans(n_clusters=n_clusters).fit(self.clustdata)
+        clustering = KMeans(n_clusters=n_clusters, **kwargs).fit(self.clustdata)
         centers    = clustering.cluster_centers_
         labels     = clustering.labels_
 
@@ -93,6 +165,9 @@ class ImageCluster():
         self.nlabels     = np.unique(labels).shape[0]
     
     def plot_clusters(self):
+        '''
+            Plots the original image, the labeled data and a 2D histogram
+        '''
         ## create a colormap to plot the labels
         cmap        = plt.cm.cubehelix(np.linspace(0, 1, self.nlabels+1))
 
@@ -108,8 +183,9 @@ class ImageCluster():
         ax3 = fig.add_subplot('313')
         plt.subplots_adjust(top = 0.92, left=0.0, right=0.98, bottom=0.12, hspace=0.13, wspace=0.10)
 
-        ax1.imshow(self.image, origin='lower')
-        ax2.imshow(labelimg, vmin=0, vmax=self.nlabels, cmap='cubehelix', origin='lower')
+        ax1.imshow(self.image, extent=self.extents, origin='lower')
+        ax2.imshow(labelimg, vmin=0, vmax=self.nlabels, origin='lower',\
+                   cmap='cubehelix', extent=self.extents)
 
         for axi in [ax1, ax2]:
             axi.set_xticks([])
@@ -132,6 +208,14 @@ class ImageCluster():
         plt.show()
 
     def filter_cluster(self, label):
+        '''
+            Remove a specific label from the cluster
+
+            Parameters
+            ----------
+            label : int
+                The number of the label to remove
+        '''
         label_mask = np.where(self.labels==label)[0]
 
         self.pixmask = np.delete(self.pixmask, label_mask, axis=0)
@@ -142,3 +226,32 @@ class ImageCluster():
 
         self.npix = len(self.pixmask)
     
+    def cluster_stats(self):
+        '''
+            Plots the latitudinal distribution of clusters
+        '''
+        lon = self.lonflat[self.pixmask]
+        lat = self.latflat[self.pixmask]
+
+        cmap        = plt.cm.cubehelix(np.linspace(0, 1, self.nlabels+1))
+
+        fig, ax = plt.subplots(figsize=(10,10))
+
+        latunique, nlats = np.unique(lat, return_counts=True)
+        
+        data  = np.zeros((self.lat.size, self.nlabels))
+
+        for i, lati in enumerate(self.lat):
+            nlati  = nlats[latunique==lati]
+            latsub = lat[lat==lati]
+            if(nlati > 0.):
+                for j in range(self.nlabels):
+                    data[i,j] = len(lat[self.labels==j+1])/nlati
+
+        for j in range(self.nlabels):
+            ax.plot(data[:,j], self.lat, '-', color=cmap[j+1])
+
+        ax.set_ylabel(r'Latitude [deg]')
+        ax.set_xlabel(r'Relative number of labeled pixels')
+
+        plt.show()
