@@ -212,7 +212,7 @@ def map_project(newlon, newlat, file, num_procs=1, save=False, savemask=False):
         latVar  = f.createVariable('lat', 'float32', ('y'), zlib=True)
         lonVar  = f.createVariable('lon', 'float32', ('x'), zlib=True)
 
-        lonVar.units = "degrees west"
+        lonVar.units = "degrees east"
         latVar.units = "degrees north"
 
         imgVar  = f.createVariable('img', 'float32', ('y','x','colors'), zlib=True)

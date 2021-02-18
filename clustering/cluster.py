@@ -25,10 +25,10 @@ class ImageCluster():
         self.projfile   = projfile
         self.fname, ext = os.path.splitext(projfile)
 
+        ## extract the data and latitudinal extents
         indata = nc.Dataset(projfile, 'r')
-
+        
         self.image = indata.variables['img_corr'][:].astype(float)/255.
-
         self.lon = indata.variables['lon'][:].astype(np.float64)
         self.lat = indata.variables['lat'][:].astype(np.float64)
 
@@ -47,8 +47,11 @@ class ImageCluster():
 
         self.get_data_from_img()
 
-        fig, ax = plt.subplots(1,1, figsize=(11, 8))
+        fig, ax = plt.subplots(1,1, figsize=(11, 8), dpi=150)
         ax.imshow(self.image, extent=self.extents, origin='lower')
+
+        ax.set_xlabel(r"Longitude [deg]")
+        ax.set_ylabel(r"Latitude [deg]")
         plt.show()
 
     def get_data_from_img(self):
@@ -177,7 +180,7 @@ class ImageCluster():
 
         labelimg    = self.create_img_from_array(labelimg)
 
-        fig = plt.figure(figsize=(10,20))
+        fig = plt.figure(figsize=(8,20), dpi=150)
         ax1 = fig.add_subplot('311')
         ax2 = fig.add_subplot('312')
         ax3 = fig.add_subplot('313')
@@ -187,12 +190,12 @@ class ImageCluster():
         ax2.imshow(labelimg, vmin=0, vmax=self.nlabels, origin='lower',\
                    cmap='cubehelix', extent=self.extents)
 
-        for axi in [ax1, ax2]:
-            axi.set_xticks([])
-            axi.set_yticks([])
-
         ax1.set_title(r'Raw image')
         ax2.set_title(r'Cloud classes')
+        ax1.set_xlabel(r"Longitude [deg]")
+        ax1.set_ylabel(r"Latitude [deg]")
+        ax2.set_xlabel(r"Longitude [deg]")
+        ax2.set_ylabel(r"Latitude [deg]")
 
         ax3.cla()
         h = ax3.hist2d(np.degrees(self.clustdata[:,0]), self.clustdata[:,1], bins=40, cmap='RdPu', norm=LogNorm())
@@ -215,7 +218,14 @@ class ImageCluster():
             ----------
             label : int
                 The number of the label to remove
+
+            Raises
+            ------
+            AssertionError
+                if `label` is not one of the cluster labels 
         '''
+        assert (label>0)&(label<=self.nlabels), "labels should be between 1 and n_clusters (incl.)"
+
         label_mask = np.where(self.labels==label)[0]
 
         self.pixmask = np.delete(self.pixmask, label_mask, axis=0)
@@ -225,33 +235,3 @@ class ImageCluster():
         print("Removed %d pixels"%(len(label_mask)))
 
         self.npix = len(self.pixmask)
-    
-    def cluster_stats(self):
-        '''
-            Plots the latitudinal distribution of clusters
-        '''
-        lon = self.lonflat[self.pixmask]
-        lat = self.latflat[self.pixmask]
-
-        cmap        = plt.cm.cubehelix(np.linspace(0, 1, self.nlabels+1))
-
-        fig, ax = plt.subplots(figsize=(10,10))
-
-        latunique, nlats = np.unique(lat, return_counts=True)
-        
-        data  = np.zeros((self.lat.size, self.nlabels))
-
-        for i, lati in enumerate(self.lat):
-            nlati  = nlats[latunique==lati]
-            latsub = lat[lat==lati]
-            if(nlati > 0.):
-                for j in range(self.nlabels):
-                    data[i,j] = len(lat[self.labels==j+1])/nlati
-
-        for j in range(self.nlabels):
-            ax.plot(data[:,j], self.lat, '-', color=cmap[j+1])
-
-        ax.set_ylabel(r'Latitude [deg]')
-        ax.set_xlabel(r'Relative number of labeled pixels')
-
-        plt.show()
